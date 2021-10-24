@@ -37,14 +37,19 @@ export class MidwayLoggerContainer extends Map<string, ILogger> {
   }
 
   createLogger(name: string, options: LoggerOptions): ILogger {
+    // MidwayLoggerContainer 的类默认继承了 Map 所以有Map的方法使用
+    // 如果Map中不存在这个日志名
     if (!this.has(name)) {
+      // MidwayBaseLogger 基类 log类创建
       const logger = new MidwayBaseLogger(
         Object.assign(options, this.containerOptions)
       );
 
+      // TODO: 暂不理解
       this.syncOriginStatus(name, logger);
 
       this.addLogger(name, logger);
+      // map将这个日志名和值存储
       this.set(name, logger);
       return logger;
     }

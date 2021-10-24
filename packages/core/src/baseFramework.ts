@@ -123,6 +123,7 @@ export abstract class BaseFramework<
 
   public abstract run(): Promise<void>;
 
+  // Midway 为每个框架的 app 增加了一个 setContextLoggerClass 方法，用于覆盖默认的 ctx.logger 输出的 label。
   protected setContextLoggerClass(BaseContextLogger: any) {
     this.BaseContextLoggerClass = BaseContextLogger;
   }

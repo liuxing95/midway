@@ -85,14 +85,17 @@ export class MidwayBaseLogger extends EmptyLogger implements IMidwayLogger {
       options.disableFileSymlink = true;
     }
     this.loggerOptions = options;
+    // 输出的默认标签，[] 中的值
     if (this.loggerOptions.defaultLabel) {
       this.defaultLabel = this.loggerOptions.defaultLabel;
     }
 
+    // 默认输出的元信息，对象 key/value 结构
     if (this.loggerOptions.defaultMeta) {
       this.defaultMetadata = this.loggerOptions.defaultMeta;
     }
 
+    // TODO: 这个是不是没必要存在？
     if (this.loggerOptions.format) {
       this.configure({
         format: this.loggerOptions.format,
@@ -107,6 +110,7 @@ export class MidwayBaseLogger extends EmptyLogger implements IMidwayLogger {
       })
     );
 
+    //  transports 功能有winston 提供
     this.consoleTransport = new transports.Console({
       level: options.consoleLevel || options.level || 'silly',
       format: format.combine(
@@ -128,32 +132,44 @@ export class MidwayBaseLogger extends EmptyLogger implements IMidwayLogger {
       ),
     });
 
+    // 是否禁止终端输出
     if (options.disableConsole !== true) {
       this.enableConsole();
     }
 
+    // 配置 文件地址
     options.dir = options.dir || process.cwd();
+    // 配置 打印文件名
+    // 框架，组件层面的日志，我们叫他 coreLogger
     options.fileLogName = options.fileLogName || 'midway-core.log';
+    // 判断 fileLogName 是不是 绝对路径
     if (isAbsolute(options.fileLogName)) {
       options.dir = dirname(options.fileLogName);
       options.fileLogName = basename(options.fileLogName);
     }
+    // 错误日志
     options.errorLogName = options.errorLogName || 'common-error.log';
     if (isAbsolute(options.errorLogName)) {
       options.errorDir = dirname(options.errorLogName);
       options.errorLogName = basename(options.errorLogName);
     }
 
+    // 是否 禁止文本日志输出
     if (options.disableFile !== true) {
       this.enableFile();
     }
 
+    // 是否 禁止错误日志输出
     if (options.disableError !== true) {
       this.enableError();
     }
+    // TODO: winston 提供的 add方法
     this.add(new EmptyTransport());
   }
 
+  // 所有格式日志打印的基础函数
+  // level 报错等级
+  // args 格式为 TODO:[]
   log(level, ...args) {
     const originArgs = [...args];
     let meta, msg;
@@ -164,6 +180,7 @@ export class MidwayBaseLogger extends EmptyLogger implements IMidwayLogger {
     }
 
     const last = args.pop();
+    // 错误格式的兼容
     if (last instanceof Error) {
       msg = util.format(...args, last);
       meta[ORIGIN_ERROR] = last;
@@ -172,6 +189,7 @@ export class MidwayBaseLogger extends EmptyLogger implements IMidwayLogger {
     }
 
     meta[ORIGIN_ARGS] = originArgs;
+    // winston 提供的 log方法
     return super.log(level, msg, meta);
   }
 
@@ -274,6 +292,7 @@ export class MidwayBaseLogger extends EmptyLogger implements IMidwayLogger {
     this.customInfoHandler = customInfoHandler;
   }
 
+  // 获取默认日志配置
   getDefaultLoggerConfigure() {
     const printInfo = this.loggerOptions.printFormat
       ? this.loggerOptions.printFormat
@@ -336,6 +355,7 @@ export class MidwayBaseLogger extends EmptyLogger implements IMidwayLogger {
     return super.close();
   }
 
+  // 以下是各种格式的打印
   debug(...args) {
     this.log('debug', ...args);
   }
