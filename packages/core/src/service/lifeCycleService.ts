@@ -1,4 +1,4 @@
-import { ILifeCycle, IMidwayApplication, IMidwayContainer } from '../interface';
+import { ILifeCycle, IMidwayContainer } from '../interface';
 import {
   CONFIGURATION_KEY,
   Init,
@@ -11,6 +11,8 @@ import {
 import { FunctionalConfiguration } from '../functional/configuration';
 import { MidwayFrameworkService } from './frameworkService';
 import { MidwayConfigService } from './configService';
+import { debuglog } from 'util';
+const debug = debuglog('midway:debug');
 
 @Provide()
 @Scope(ScopeEnum.Singleton)
@@ -21,14 +23,10 @@ export class MidwayLifeCycleService {
   @Inject()
   protected configService: MidwayConfigService;
 
-  protected mainApp: IMidwayApplication;
-
   constructor(readonly applicationContext: IMidwayContainer) {}
 
   @Init()
   protected async init() {
-    this.mainApp = this.frameworkService.getMainApp();
-
     // run lifecycle
     const cycles = listModule(CONFIGURATION_KEY);
 
@@ -39,6 +37,7 @@ export class MidwayLifeCycleService {
         cycle.instance = cycle.target;
       } else {
         // 普通类写法
+        debug(`[core:lifecycle]: run ${cycle.target.name} init`);
         cycle.instance = await this.applicationContext.getAsync<ILifeCycle>(
           cycle.target
         );
@@ -77,7 +76,9 @@ export class MidwayLifeCycleService {
   }
 
   public async stop() {
+    // stop lifecycle
     const cycles = listModule(CONFIGURATION_KEY);
+
     for (const cycle of cycles) {
       let inst;
       if (cycle.target instanceof FunctionalConfiguration) {
@@ -87,22 +88,41 @@ export class MidwayLifeCycleService {
         inst = await this.applicationContext.getAsync<ILifeCycle>(cycle.target);
       }
 
-      if (inst?.onStop && typeof inst.onStop === 'function') {
-        await inst.onStop(this.applicationContext, this.mainApp);
-      }
+      await this.runContainerLifeCycle(inst, 'onStop');
     }
+
+    // stop framework
+    await this.frameworkService.stopFramework();
   }
 
   private async runContainerLifeCycle(
-    lifecycleInstanceList,
+    lifecycleInstanceOrList,
     lifecycle,
     resultHandler?: (result: any) => void
   ) {
-    for (const cycle of lifecycleInstanceList) {
-      if (typeof cycle.instance[lifecycle] === 'function') {
-        const result = await cycle.instance[lifecycle](
+    if (Array.isArray(lifecycleInstanceOrList)) {
+      for (const cycle of lifecycleInstanceOrList) {
+        if (typeof cycle.instance[lifecycle] === 'function') {
+          debug(
+            `[core:lifecycle]: run ${cycle.instance.constructor.name} ${lifecycle}`
+          );
+          const result = await cycle.instance[lifecycle](
+            this.applicationContext,
+            this.frameworkService.getMainApp()
+          );
+          if (resultHandler) {
+            resultHandler(result);
+          }
+        }
+      }
+    } else {
+      if (typeof lifecycleInstanceOrList[lifecycle] === 'function') {
+        debug(
+          `[core:lifecycle]: run ${lifecycleInstanceOrList.constructor.name} ${lifecycle}`
+        );
+        const result = await lifecycleInstanceOrList[lifecycle](
           this.applicationContext,
-          this.mainApp
+          this.frameworkService.getMainApp()
         );
         if (resultHandler) {
           resultHandler(result);
@@ -114,6 +134,9 @@ export class MidwayLifeCycleService {
   private async runObjectLifeCycle(lifecycleInstanceList, lifecycle) {
     for (const cycle of lifecycleInstanceList) {
       if (typeof cycle.instance[lifecycle] === 'function') {
+        debug(
+          `[core:lifecycle]: run ${cycle.instance.constructor.name} ${lifecycle}`
+        );
         return this.applicationContext[lifecycle](
           cycle.instance[lifecycle].bind(cycle.instance)
         );

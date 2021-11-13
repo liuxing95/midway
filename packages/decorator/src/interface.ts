@@ -1,8 +1,6 @@
-import { Middleware } from 'koa';
-import { RequestHandler } from 'express';
-
-export type MiddlewareParamArray = Array<Middleware | RequestHandler | string>;
+export type MiddlewareParamArray = Array<string | any>;
 export type ObjectIdentifier = string | Symbol;
+export type GroupModeType = 'one' | 'multi';
 
 export enum ScopeEnum {
   Singleton = 'Singleton',
@@ -148,6 +146,10 @@ export namespace FaaSMetadata {
      * deploy or not
      */
     isDeploy?: boolean;
+    /**
+     * function middleware
+     */
+    middleware?: any[];
   }
 
   export interface EventTriggerOptions extends TriggerCommonOptions {
@@ -157,7 +159,6 @@ export namespace FaaSMetadata {
   export interface HTTPTriggerOptions extends TriggerCommonOptions  {
     path: string;
     method?: 'get' | 'post' | 'delete' | 'put' | 'head' | 'patch' | 'all';
-    middleware?: any[];
   }
 
   export interface APIGatewayTriggerOptions extends HTTPTriggerOptions  {
@@ -213,20 +214,27 @@ export namespace FaaSMetadata {
 
 }
 
-export enum MidwayFrameworkType {
-  WEB = '@midwayjs/web',
-  WEB_KOA = '@midwayjs/koa',
-  WEB_EXPRESS = '@midwayjs/express',
-  FAAS = '@midwayjs/faas',
-  MS_HSF = '',
-  MS_GRPC = '@midwayjs/grpc',
-  MS_RABBITMQ = '@midwayjs/rabbitmq',
-  WS_IO = '@midwayjs/socketio',
-  WS = '@midwayjs/ws',
-  SERVERLESS_APP = '@midwayjs/serverless-app',
-  CUSTOM = '',
-  EMPTY = 'empty',
-  LIGHT = 'light',
+export abstract class FrameworkType {
+  abstract name: string;
+}
+
+export class MidwayFrameworkType extends FrameworkType {
+  static WEB = new MidwayFrameworkType('@midwayjs/web');
+  static WEB_KOA = new MidwayFrameworkType('@midwayjs/web-koa');
+  static WEB_EXPRESS = new MidwayFrameworkType('@midwayjs/express');
+  static FAAS = new MidwayFrameworkType('@midwayjs/faas');
+  static MS_GRPC = new MidwayFrameworkType('@midwayjs/grpc');
+  static MS_RABBITMQ = new MidwayFrameworkType('@midwayjs/rabbitmq');
+  static WS_IO = new MidwayFrameworkType('@midwayjs/socketio');
+  static WS = new MidwayFrameworkType('@midwayjs/ws');
+  static SERVERLESS_APP = new MidwayFrameworkType('@midwayjs/serverless-app');
+  static CUSTOM = new MidwayFrameworkType('');
+  static EMPTY = new MidwayFrameworkType('empty');
+  static LIGHT = new MidwayFrameworkType('light');
+  static TASK = new MidwayFrameworkType('@midwayjs/task');
+  constructor(public name: string) {
+    super();
+  };
 }
 
 export enum ServerlessTriggerType {

@@ -15,7 +15,7 @@
     "supertest": "^6.0.0"
   },
   "engines": {
-    "node": ">= 10"
+    "node": ">=12"
   },
   "files": [
     "dist/**/*.js",
@@ -28,7 +28,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git@github.com:midwayjs/midway-faas.git"
+    "url": "git@github.com:midwayjs/midway.git"
   },
   "license": "MIT",
   "gitHead": "1afeb34cbb6c0ad49ccdb9cfaebd254ae73afc6a"

@@ -3,6 +3,7 @@ import { getCurrentEnvironment, isDevelopmentEnvironment } from '../util/';
 import { join } from 'path';
 
 export default (appInfo: MidwayAppInfo) => {
+  const isDevelopment = isDevelopmentEnvironment(getCurrentEnvironment());
   return {
     midwayLogger: {
       default: {
@@ -11,16 +12,16 @@ export default (appInfo: MidwayAppInfo) => {
           'logs',
           appInfo.name
         ),
-        level: isDevelopmentEnvironment(getCurrentEnvironment())
-          ? 'info'
-          : 'warn',
+        level: isDevelopment ? 'info' : 'warn',
+        consoleLevel: isDevelopment ? 'info' : 'warn',
       },
       clients: {
         coreLogger: {
           fileLogName: 'midway-core.log',
         },
-        logger: {
+        appLogger: {
           fileLogName: 'midway-app.log',
+          aliasName: 'logger',
         },
       },
     },

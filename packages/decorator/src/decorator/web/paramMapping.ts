@@ -1,8 +1,4 @@
-import {
-  attachPropertyDataToClass,
-  getParamNames,
-  WEB_ROUTER_PARAM_KEY,
-} from '../../';
+import { createCustomParamDecorator, WEB_ROUTER_PARAM_KEY } from '../../';
 
 export interface GetFileStreamOptions {
   requireFile?: boolean; // required file submit, default is true
@@ -51,20 +47,11 @@ export interface RouterParamValue {
 }
 
 const createParamMapping = function (type: RouteParamTypes) {
-  return (propertyData?: any) => (target, propertyName, index) => {
-    if (propertyData === undefined) {
-      propertyData = getParamNames(target[propertyName])[index];
-    }
-    attachPropertyDataToClass(
-      WEB_ROUTER_PARAM_KEY,
-      {
-        index,
-        type,
-        propertyData,
-      },
-      target,
-      propertyName
-    );
+  return (propertyData?: any) => {
+    return createCustomParamDecorator(WEB_ROUTER_PARAM_KEY, {
+      type,
+      propertyData,
+    });
   };
 };
 

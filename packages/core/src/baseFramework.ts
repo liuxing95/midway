@@ -8,13 +8,10 @@ import {
   IMidwayFramework,
   MidwayProcessTypeEnum,
   CommonExceptionFilterUnion,
+  CommonMiddleware,
+  MiddlewareRespond,
 } from './interface';
-import {
-  Inject,
-  Destroy,
-  Init,
-  MidwayFrameworkType,
-} from '@midwayjs/decorator';
+import { Inject, Destroy, Init, FrameworkType } from '@midwayjs/decorator';
 import { ILogger, LoggerOptions, MidwayContextLogger } from '@midwayjs/logger';
 import { MidwayRequestContainer } from './context/requestContainer';
 import { MidwayEnvironmentService } from './service/environmentService';
@@ -31,16 +28,16 @@ export abstract class BaseFramework<
   OPT extends IConfigurationOptions
 > implements IMidwayFramework<APP, OPT>
 {
-  protected applicationContext: IMidwayContainer;
+  public app: APP;
+  public configurationOptions: OPT;
   protected logger: ILogger;
   protected appLogger: ILogger;
-  public configurationOptions: OPT;
-  public app: APP;
   protected defaultContext = {};
   protected BaseContextLoggerClass: any;
+  protected ContextLoggerApplyLogger: string;
   protected middlewareManager = new ContextMiddlewareManager<CTX>();
   protected exceptionFilterManager = new ExceptionFilterManager<CTX>();
-  private composeMiddleware = null;
+  protected composeMiddleware = null;
 
   @Inject()
   loggerService: MidwayLoggerService;
@@ -57,28 +54,28 @@ export abstract class BaseFramework<
   @Inject()
   middlewareService: MidwayMiddlewareService<CTX>;
 
+  constructor(readonly applicationContext: IMidwayContainer) {}
+
   @Init()
   async init() {
-    this.configure(
-      this.configService.getConfiguration(this.getFrameworkName())
-    );
+    this.configurationOptions = this.configure() ?? ({} as OPT);
     this.BaseContextLoggerClass =
-      this.configurationOptions.ContextLoggerClass ||
+      this.configurationOptions.ContextLoggerClass ??
       this.getDefaultContextLoggerClass();
+    this.ContextLoggerApplyLogger =
+      this.configurationOptions.ContextLoggerApplyLogger ?? 'appLogger';
     this.logger = this.loggerService.getLogger('coreLogger');
-    this.appLogger = this.loggerService.getLogger('logger');
+    this.appLogger = this.loggerService.getLogger('appLogger');
     return this;
   }
 
-  public configure(options?: OPT): BaseFramework<APP, CTX, OPT> {
-    this.configurationOptions = options || ({} as OPT);
-    return this;
+  abstract configure(options?: OPT);
+
+  isEnable(): boolean {
+    return true;
   }
 
   public async initialize(options?: IMidwayBootstrapOptions): Promise<void> {
-    this.configurationOptions = this.configurationOptions || ({} as OPT);
-    this.applicationContext = options.applicationContext;
-
     await this.beforeContainerInitialize(options);
     await this.containerInitialize(options);
     await this.afterContainerInitialize(options);
@@ -93,8 +90,17 @@ export abstract class BaseFramework<
     await this.afterContainerReady(options);
   }
 
+  /**
+   * @deprecated
+   */
   protected async containerInitialize(options: IMidwayBootstrapOptions) {}
+  /**
+   * @deprecated
+   */
   protected async containerDirectoryLoad(options: IMidwayBootstrapOptions) {}
+  /**
+   * @deprecated
+   */
   protected async containerReady(options: IMidwayBootstrapOptions) {
     if (!this.app.getApplicationContext) {
       this.defineApplicationProperties();
@@ -119,17 +125,17 @@ export abstract class BaseFramework<
 
   public abstract applicationInitialize(options: IMidwayBootstrapOptions);
 
-  public abstract getFrameworkType(): MidwayFrameworkType;
+  public abstract getFrameworkType(): FrameworkType;
 
   public abstract run(): Promise<void>;
 
   // Midway 为每个框架的 app 增加了一个 setContextLoggerClass 方法，用于覆盖默认的 ctx.logger 输出的 label。
-  protected setContextLoggerClass(BaseContextLogger: any) {
+  public setContextLoggerClass(BaseContextLogger: any) {
     this.BaseContextLoggerClass = BaseContextLogger;
   }
 
   protected createContextLogger(ctx: CTX, name?: string): ILogger {
-    const appLogger = this.getLogger(name);
+    const appLogger = this.getLogger(name ?? this.ContextLoggerApplyLogger);
     return new this.BaseContextLoggerClass(ctx, appLogger);
   }
 
@@ -215,6 +221,12 @@ export abstract class BaseFramework<
             return this.createContextLogger(ctx, name);
           };
         }
+        ctx.setAttr = (key: string, value: any) => {
+          ctx.requestContext.setAttr(key, value);
+        };
+        ctx.getAttr = <T>(key: string): T => {
+          return ctx.requestContext.getAttr(key);
+        };
         return ctx;
       },
 
@@ -241,7 +253,7 @@ export abstract class BaseFramework<
       },
       useFilter: (Filter: CommonExceptionFilterUnion<CTX>) => {
         this.exceptionFilterManager.useFilter(Filter);
-      }
+      },
     };
     for (const method of whiteList) {
       delete defaultApplicationProperties[method];
@@ -254,40 +266,61 @@ export abstract class BaseFramework<
   }
 
   protected async beforeStop(): Promise<void> {}
-
+  /**
+   * @deprecated
+   */
   protected async beforeContainerInitialize(
     options: Partial<IMidwayBootstrapOptions>
   ): Promise<void> {}
-
+  /**
+   * @deprecated
+   */
   protected async afterContainerInitialize(
     options: Partial<IMidwayBootstrapOptions>
   ): Promise<void> {}
-
+  /**
+   * @deprecated
+   */
   protected async afterContainerDirectoryLoad(
     options: Partial<IMidwayBootstrapOptions>
   ): Promise<void> {}
-
+  /**
+   * @deprecated
+   */
   protected async afterContainerReady(
     options: Partial<IMidwayBootstrapOptions>
   ): Promise<void> {}
 
-  protected async getMiddleware() {
+  public async getMiddleware<R, N>(
+    lastMiddleware?: CommonMiddleware<CTX, R, N>
+  ): Promise<MiddlewareRespond<CTX, R, N>> {
     if (!this.composeMiddleware) {
       this.middlewareManager.insertFirst(async (ctx, next) => {
-        let result = undefined;
+        let returnResult = undefined;
         try {
-          result = await next();
+          const result = await next();
+          returnResult = {
+            result,
+            error: undefined,
+          };
         } catch (err) {
-          result = await this.exceptionFilterManager.run(err, ctx);
+          returnResult = await this.exceptionFilterManager.run(err, ctx);
         }
-        return result;
+        return returnResult;
       });
       this.composeMiddleware = await this.middlewareService.compose(
         this.middlewareManager
       );
       await this.exceptionFilterManager.init(this.applicationContext);
     }
-    return this.composeMiddleware;
+    if (lastMiddleware) {
+      return await this.middlewareService.compose([
+        this.composeMiddleware,
+        lastMiddleware,
+      ]);
+    } else {
+      return this.composeMiddleware;
+    }
   }
 
   public getLogger(name?: string) {
@@ -307,7 +340,7 @@ export abstract class BaseFramework<
   }
 
   public getFrameworkName() {
-    return this.getFrameworkType().toString();
+    return this.getFrameworkType().name;
   }
 
   public getDefaultContextLoggerClass(): any {

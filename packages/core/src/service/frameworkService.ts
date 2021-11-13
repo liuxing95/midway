@@ -1,25 +1,22 @@
 import {
+  ALL,
+  APPLICATION_KEY,
+  CONFIG_KEY,
+  FRAMEWORK_KEY,
+  FrameworkType,
+  Init,
+  Inject,
+  listModule,
+  listPreloadModule,
+  LOGGER_KEY,
+  MidwayFrameworkType,
+  PIPELINE_IDENTIFIER,
+  PLUGIN_KEY,
   Provide,
   Scope,
   ScopeEnum,
-  Init,
-  CONFIG_KEY,
-  ALL,
-  LOGGER_KEY,
-  Inject,
-  listModule,
-  FRAMEWORK_KEY,
-  MidwayFrameworkType,
-  APPLICATION_KEY,
-  listPreloadModule,
-  PLUGIN_KEY,
-  PIPELINE_IDENTIFIER,
-  APPLICATION_CONTEXT_KEY,
 } from '@midwayjs/decorator';
 import {
-  HandlerFunction,
-  IMidwayApplication,
-  IMidwayBootstrapOptions,
   IMidwayContainer,
   IMidwayFramework,
   REQUEST_OBJ_CTX_KEY,
@@ -28,6 +25,11 @@ import { MidwayConfigService } from './configService';
 import { MidwayLoggerService } from './loggerService';
 import { BaseFramework } from '../baseFramework';
 import { MidwayPipelineService } from './pipelineService';
+import { MidwayDecoratorService } from './decoratorService';
+import { MidwayAspectService } from './aspectService';
+import * as util from 'util';
+
+const debug = util.debuglog('midway:debug');
 
 @Provide()
 @Scope(ScopeEnum.Singleton)
@@ -38,7 +40,11 @@ export class MidwayFrameworkService {
   @Inject()
   loggerService: MidwayLoggerService;
 
-  handlerMap = new Map<string, HandlerFunction>();
+  @Inject()
+  aspectService: MidwayAspectService;
+
+  @Inject()
+  decoratorService: MidwayDecoratorService;
 
   constructor(
     readonly applicationContext: IMidwayContainer,
@@ -46,108 +52,107 @@ export class MidwayFrameworkService {
   ) {}
 
   private mainFramework: IMidwayFramework<any, any>;
-  private mainApp: IMidwayApplication;
 
-  private globalAppMap = new Map<
-    MidwayFrameworkType,
-    IMidwayApplication<any>
-  >();
-
-  private globalFrameworkMap = new Map<
-    MidwayFrameworkType,
+  private globalFrameworkMap = new WeakMap<
+    FrameworkType,
     IMidwayFramework<any, any>
   >();
 
+  private globalFrameworkList = [];
+
   @Init()
   async init() {
-    // add custom property decorator listener
-    this.applicationContext.onObjectCreated((instance, options) => {
-      if (
-        this.handlerMap.size > 0 &&
-        Array.isArray(options.definition.handlerProps)
-      ) {
-        // 已经预先在 bind 时处理
-        for (const item of options.definition.handlerProps) {
-          this.defineGetterPropertyValue(
-            item,
-            instance,
-            this.getHandler(item.key)
+    // register base config hook
+    this.decoratorService.registerPropertyHandler(
+      CONFIG_KEY,
+      (propertyName, meta) => {
+        if (meta.identifier === ALL) {
+          return this.configService.getConfiguration();
+        } else {
+          return this.configService.getConfiguration(
+            meta.identifier ?? propertyName
           );
         }
       }
-    });
-
-    // register @ApplicationContext
-    this.registerHandler(APPLICATION_CONTEXT_KEY, (propertyName, mete) => {
-      return this.applicationContext;
-    });
-
-    // register base config hook
-    this.registerHandler(CONFIG_KEY, (propertyName, meta) => {
-      if (meta.identifier === ALL) {
-        return this.configService.getConfiguration();
-      } else {
-        return this.configService.getConfiguration(
-          meta.identifier ?? propertyName
-        );
-      }
-    });
+    );
 
     // register @Logger decorator handler
-    this.registerHandler(LOGGER_KEY, (propertyName, meta) => {
-      return this.loggerService.getLogger(meta.identifier ?? propertyName);
-    });
+    this.decoratorService.registerPropertyHandler(
+      LOGGER_KEY,
+      (propertyName, meta) => {
+        return this.loggerService.getLogger(meta.identifier ?? propertyName);
+      }
+    );
 
-    this.registerHandler(PIPELINE_IDENTIFIER, (key, meta, instance) => {
-      return new MidwayPipelineService(
-        instance[REQUEST_OBJ_CTX_KEY]?.requestContext ??
-          this.applicationContext,
-        meta.valves
-      );
-    });
+    this.decoratorService.registerPropertyHandler(
+      PIPELINE_IDENTIFIER,
+      (key, meta, instance) => {
+        return new MidwayPipelineService(
+          instance[REQUEST_OBJ_CTX_KEY]?.requestContext ??
+            this.applicationContext,
+          meta.valves
+        );
+      }
+    );
 
-    let frameworks = listModule(FRAMEWORK_KEY);
+    let frameworks: Array<new (...args) => any> = listModule(FRAMEWORK_KEY);
     // filter proto
     frameworks = filterProtoFramework(frameworks);
 
     if (frameworks.length) {
-      // init framework and app
-      const frameworkInstances: IMidwayFramework<any, any>[] =
-        await initializeFramework(
-          this.applicationContext,
-          this.globalOptions,
-          frameworks
-        );
+      for (const frameworkClz of frameworks) {
+        const frameworkInstance = await this.applicationContext.getAsync<
+          IMidwayFramework<any, any>
+        >(frameworkClz, [this.applicationContext]);
+        // if enable, just init framework
+        if (frameworkInstance.isEnable()) {
+          // app init
+          await frameworkInstance.initialize({
+            applicationContext: this.applicationContext,
+            ...this.globalOptions,
+          });
 
-      for (const frameworkInstance of frameworkInstances) {
+          debug(
+            `[core:framework]: Found Framework "${frameworkInstance.getFrameworkName()}" and initialize.`
+          );
+        } else {
+          debug(
+            `[core:framework]: Found Framework "${frameworkInstance.getFrameworkName()}" and delay initialize.`
+          );
+        }
         // app init
-        this.globalAppMap.set(
-          frameworkInstance.getFrameworkType(),
-          frameworkInstance.getApplication()
-        );
         this.globalFrameworkMap.set(
           frameworkInstance.getFrameworkType(),
           frameworkInstance
         );
+        this.globalFrameworkList.push(frameworkInstance);
       }
 
-      global['MIDWAY_MAIN_FRAMEWORK'] = this.mainFramework =
-        frameworkInstances[0];
-      this.mainApp = this.mainFramework.getApplication();
-
       // register @App decorator handler
-      this.registerHandler(APPLICATION_KEY, (propertyName, mete) => {
-        if (mete.type) {
-          return this.globalAppMap.get(mete.type as any);
-        } else {
-          return this.mainApp;
+      this.decoratorService.registerPropertyHandler(
+        APPLICATION_KEY,
+        (propertyName, mete) => {
+          if (mete.type) {
+            return this.globalFrameworkMap.get(mete.type);
+          } else {
+            return this.getMainApp();
+          }
         }
-      });
+      );
 
-      this.registerHandler(PLUGIN_KEY, (key, target) => {
-        return this.mainApp[key];
-      });
+      this.decoratorService.registerPropertyHandler(
+        PLUGIN_KEY,
+        (key, target) => {
+          return this.getMainApp()[key];
+        }
+      );
+
+      global['MIDWAY_MAIN_FRAMEWORK'] = this.mainFramework =
+        this.globalFrameworkList[0];
     }
+
+    // init aspect module
+    await this.aspectService.loadAspect();
 
     // some preload module init
     const modules = listPreloadModule();
@@ -157,71 +162,25 @@ export class MidwayFrameworkService {
     }
   }
 
-  /**
-   * binding getter method for decorator
-   *
-   * @param prop
-   * @param instance
-   * @param getterHandler
-   */
-  private defineGetterPropertyValue(prop, instance, getterHandler) {
-    if (prop && getterHandler) {
-      if (prop.propertyName) {
-        Object.defineProperty(instance, prop.propertyName, {
-          get: () =>
-            getterHandler(prop.propertyName, prop.metadata ?? {}, instance),
-          configurable: true, // 继承对象有可能会有相同属性，这里需要配置成 true
-          enumerable: true,
-        });
-      }
-    }
-  }
-
-  private getHandler(key: string) {
-    if (this.handlerMap.has(key)) {
-      return this.handlerMap.get(key);
-    }
-  }
-
   public getMainApp() {
-    return this.mainApp;
+    return this.mainFramework?.getApplication();
   }
 
   public getMainFramework() {
     return this.mainFramework;
   }
 
-  public registerHandler(key: string, fn: HandlerFunction) {
-    this.handlerMap.set(key, fn);
-  }
-
   public getFramework(type: MidwayFrameworkType) {
     return this.globalFrameworkMap.get(type);
   }
-}
 
-async function initializeFramework(
-  applicationContext: IMidwayContainer,
-  globalOptions: IMidwayBootstrapOptions,
-  frameworks: any[]
-): Promise<IMidwayFramework<any, any>[]> {
-  return Promise.all(
-    frameworks.map(framework => {
-      // bind first
-      applicationContext.bindClass(framework);
-      return (async () => {
-        const frameworkInstance = (await applicationContext.getAsync(
-          framework
-        )) as IMidwayFramework<any, any>;
-        // app init
-        await frameworkInstance.initialize({
-          applicationContext,
-          ...globalOptions,
-        });
-        return frameworkInstance;
-      })();
-    })
-  );
+  public async stopFramework() {
+    await Promise.all(
+      Array.from(this.globalFrameworkList).map(frameworkInstance => {
+        return frameworkInstance.stop();
+      })
+    );
+  }
 }
 
 function filterProtoFramework(frameworks) {

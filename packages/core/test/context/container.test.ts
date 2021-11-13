@@ -1,8 +1,12 @@
 import {
   MidwayConfigService,
-  MidwayContainer as Container, MidwayEnvironmentService,
-  MidwayFrameworkService, MidwayInformationService,
-  MidwayLoggerService
+  MidwayContainer as Container,
+  MidwayEnvironmentService,
+  MidwayFrameworkService,
+  MidwayInformationService,
+  MidwayLoggerService,
+  MidwayDecoratorService,
+  MidwayAspectService,
 } from '../../src';
 import {
   Grandson,
@@ -85,23 +89,25 @@ describe('/test/context/container.test.ts', () => {
     container.bind(MidwayLoggerService);
     container.bind(MidwayEnvironmentService);
     container.bind(MidwayInformationService);
+    container.bind(MidwayAspectService);
+    container.bind(MidwayDecoratorService);
     container.registerObject('appDir', '');
     container.registerObject('baseDir', '');
 
-    const frameworkService = await container.getAsync(MidwayFrameworkService, [
+    const frameworkService = await container.getAsync(MidwayDecoratorService, [
       container
     ]);
 
-    frameworkService.registerHandler(APPLICATION_KEY, () => {
+    frameworkService.registerPropertyHandler(APPLICATION_KEY, () => {
       return {appName: 'hello'};
     });
-    frameworkService.registerHandler(PLUGIN_KEY, (propertyName, meta) => {
+    frameworkService.registerPropertyHandler(PLUGIN_KEY, (propertyName, meta) => {
       if (meta.identifier === 'hh') {
         return {hh: 123};
       }
       return {d: 'hello'};
     });
-    frameworkService.registerHandler(CONFIG_KEY, (propertyName, meta) => {
+    frameworkService.registerPropertyHandler(CONFIG_KEY, (propertyName, meta) => {
       if (meta.identifier === 'hello') {
         return {hello: 'this is hello config'}
       }

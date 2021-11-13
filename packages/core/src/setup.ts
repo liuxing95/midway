@@ -11,36 +11,55 @@ import {
   MidwayAspectService,
   MidwayLifeCycleService,
   MidwayMiddlewareService,
+  MidwayDecoratorService,
+  safeRequire,
 } from './';
 import defaultConfig from './config/config.default';
 import { bindContainer, clearBindContainer } from '@midwayjs/decorator';
+import * as util from 'util';
+import { join } from 'path';
+const debug = util.debuglog('midway:debug');
 
 export async function initializeGlobalApplicationContext(
-  globalOptions: Omit<IMidwayBootstrapOptions, 'applicationContext'>
+  globalOptions: IMidwayBootstrapOptions
 ) {
+  debug('[core]: start "initializeGlobalApplicationContext"');
   const appDir = globalOptions.appDir ?? '';
   const baseDir = globalOptions.baseDir ?? '';
+
   // new container
-  const applicationContext = new MidwayContainer();
+  const applicationContext =
+    globalOptions.applicationContext ?? new MidwayContainer();
   // bind container to decoratorManager
+  debug('[core]: delegate module map from decoratorManager');
   bindContainer(applicationContext);
 
-  if (!globalOptions.preloadModules && baseDir) {
-    applicationContext.setFileDetector(
-      new DirectoryFileDetector({
-        loadDir: baseDir,
-        ignore: globalOptions.ignore ?? [],
-      })
-    );
-  }
+  global['MIDWAY_APPLICATION_CONTEXT'] = applicationContext;
 
   // register baseDir and appDir
   applicationContext.registerObject('baseDir', baseDir);
   applicationContext.registerObject('appDir', appDir);
 
+  if (globalOptions.moduleDirector !== false) {
+    if (
+      globalOptions.moduleDetector === undefined ||
+      globalOptions.moduleDetector === 'file'
+    ) {
+      applicationContext.setFileDetector(
+        new DirectoryFileDetector({
+          loadDir: baseDir,
+          ignore: globalOptions.ignore ?? [],
+        })
+      );
+    } else if (globalOptions.moduleDetector) {
+      applicationContext.setFileDetector(globalOptions.moduleDetector);
+    }
+  }
+
   // bind inner service
   applicationContext.bindClass(MidwayEnvironmentService);
   applicationContext.bindClass(MidwayInformationService);
+  applicationContext.bindClass(MidwayDecoratorService);
   applicationContext.bindClass(MidwayConfigService);
   applicationContext.bindClass(MidwayAspectService);
   applicationContext.bindClass(MidwayLoggerService);
@@ -63,6 +82,20 @@ export async function initializeGlobalApplicationContext(
     },
   ]);
 
+  // init aop support
+  await applicationContext.getAsync(MidwayAspectService, [applicationContext]);
+
+  // init decorator service
+  await applicationContext.getAsync(MidwayDecoratorService, [
+    applicationContext,
+  ]);
+
+  if (!globalOptions.configurationModule) {
+    globalOptions.configurationModule = [
+      safeRequire(join(globalOptions.baseDir, 'configuration')),
+    ];
+  }
+
   for (const configurationModule of [].concat(
     globalOptions.configurationModule
   )) {
@@ -73,14 +106,16 @@ export async function initializeGlobalApplicationContext(
   // bind user code module
   await applicationContext.ready();
 
+  if (globalOptions.globalConfig) {
+    configService.add([globalOptions.globalConfig]);
+  }
+
   // merge config
   await configService.load();
+  debug('[core]: Current config = %j', configService.getConfiguration());
 
   // init logger
   await applicationContext.getAsync(MidwayLoggerService, [applicationContext]);
-
-  // aop support
-  await applicationContext.getAsync(MidwayAspectService, [applicationContext]);
 
   // middleware support
   await applicationContext.getAsync(MidwayMiddlewareService, [
@@ -112,4 +147,6 @@ export async function destroyGlobalApplicationContext(
   // stop container
   await applicationContext.stop();
   clearBindContainer();
+  global['MIDWAY_APPLICATION_CONTEXT'] = undefined;
+  global['MIDWAY_MAIN_FRAMEWORK'] = undefined;
 }

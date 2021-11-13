@@ -1,5 +1,10 @@
 import { Framework, MidwayFrameworkType, Provide } from '@midwayjs/decorator';
-import { BaseFramework, IMidwayApplication, IMidwayBootstrapOptions, IMidwayFramework } from '../../../../src';
+import { BaseFramework, CommonExceptionFilterUnion, CommonMiddleware, CommonMiddlewareUnion,
+  IMidwayApplication,
+  IMidwayBootstrapOptions,
+  IMidwayFramework,
+  MiddlewareRespond
+} from '../../../../src';
 
 @Provide()
 @Framework()
@@ -9,6 +14,10 @@ class LightFramework extends BaseFramework<any, any, any> {
   }
 
   async run(): Promise<void> {
+  }
+
+  configure() {
+    return {};
   }
 
   async applicationInitialize(options: IMidwayBootstrapOptions) {
@@ -23,6 +32,7 @@ export class CustomTwoFramework extends LightFramework {
   async applicationInitialize(options: IMidwayBootstrapOptions) {
     this.app = {} as IMidwayApplication;
   }
+
   getFrameworkType(): MidwayFrameworkType {
     return MidwayFrameworkType.MS_GRPC;
   }
@@ -31,6 +41,18 @@ export class CustomTwoFramework extends LightFramework {
 @Provide()
 @Framework()
 export class CustomThirdFramework implements IMidwayFramework<any, any> {
+  isEnable(): boolean {
+    return true;
+  }
+  getMiddleware(lastMiddleware?: CommonMiddleware<any>): Promise<MiddlewareRespond<any>> {
+    throw new Error('Method not implemented.');
+  }
+  useMiddleware(Middleware: CommonMiddlewareUnion<any>) {
+    throw new Error('Method not implemented.');
+  }
+  useFilter(Filter: CommonExceptionFilterUnion<any>) {
+    throw new Error('Method not implemented.');
+  }
   async applicationInitialize(options: IMidwayBootstrapOptions) {
     this.app = {} as IMidwayApplication;
   }
@@ -41,8 +63,8 @@ export class CustomThirdFramework implements IMidwayFramework<any, any> {
   app: any;
   configurationOptions: any;
 
-  configure(options: any): IMidwayFramework<any, any> {
-    return undefined;
+  configure() {
+    return {};
   }
 
   createLogger(name: string, options) {

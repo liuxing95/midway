@@ -1,13 +1,22 @@
 import { CATCH_KEY, getClassMetadata } from '@midwayjs/decorator';
-import { CommonExceptionFilterUnion, IExceptionFilter, IMidwayContainer } from '../interface';
+import {
+  CommonExceptionFilterUnion,
+  IExceptionFilter,
+  IMidwayContainer,
+  IMidwayContext,
+} from '../interface';
 
-export class ExceptionFilterManager<CTX> {
-
-  private filterList: Array<new (...args) => IExceptionFilter<CTX>> = [];
-  private exceptionMap: WeakMap<Error, IExceptionFilter<any>> = new WeakMap();
+export class ExceptionFilterManager<
+  T extends IMidwayContext = IMidwayContext,
+  R = any,
+  N = any
+> {
+  private filterList: Array<new (...args) => IExceptionFilter<T, R, N>> = [];
+  private exceptionMap: WeakMap<Error, IExceptionFilter<T, R, N>> =
+    new WeakMap();
   private defaultFilter = undefined;
 
-  public useFilter(Filter: CommonExceptionFilterUnion<CTX>) {
+  public useFilter(Filter: CommonExceptionFilterUnion<T, R, N>) {
     if (Array.isArray(Filter)) {
       this.filterList.push(...Filter);
     } else {
@@ -20,7 +29,7 @@ export class ExceptionFilterManager<CTX> {
       const filter = await applicationContext.getAsync(FilterClass);
       const exceptionMetadata = getClassMetadata(CATCH_KEY, FilterClass);
       if (exceptionMetadata && exceptionMetadata.catchTargets) {
-        for (let Exception of exceptionMetadata.catchTargets) {
+        for (const Exception of exceptionMetadata.catchTargets) {
           this.exceptionMap.set(Exception, filter);
         }
       } else {
@@ -30,16 +39,27 @@ export class ExceptionFilterManager<CTX> {
     }
   }
 
-  public async run(err, ctx) {
-    let result;
-    if (this.exceptionMap.has(err.constructor)) {
-      const filter = this.exceptionMap.get(err.constructor);
-      result = await filter.catch(err, ctx);
-    } else if(this.defaultFilter) {
-      result = await this.defaultFilter.catch(err, ctx);
+  public async run(
+    err: Error,
+    ctx: T,
+    res?: R,
+    next?: N
+  ): Promise<{
+    result: any;
+    error: any;
+  }> {
+    let result, error;
+    if (this.exceptionMap.has((err as any).constructor)) {
+      const filter = this.exceptionMap.get((err as any).constructor);
+      result = await filter.catch(err, ctx, res, next);
+    } else if (this.defaultFilter) {
+      result = await this.defaultFilter.catch(err, ctx, res, next);
     } else {
-      // do nothing
+      error = err;
     }
-    return result;
+    return {
+      result,
+      error,
+    };
   }
 }

@@ -1,10 +1,7 @@
 import {
   ObjectIdentifier,
   IManagedInstance,
-  ObjectDefinitionOptions,
-  IMethodAspect,
-  AspectMetadata,
-  MidwayFrameworkType
+  IMethodAspect, ScopeEnum, FrameworkType
 } from '@midwayjs/decorator';
 import { ILogger, LoggerOptions } from '@midwayjs/logger';
 import * as EventEmitter from 'events';
@@ -18,8 +15,11 @@ export interface ILifeCycle extends Partial<IObjectLifeCycle> {
   onReady?(container: IMidwayContainer, app?: IMidwayApplication): Promise<void>;
   onServerReady?(container: IMidwayContainer, app?: IMidwayApplication): Promise<void>;
   onStop?(container: IMidwayContainer, app?: IMidwayApplication): Promise<void>;
-  onAppError?(err: Error, app: IMidwayApplication);
-  onContextError?(err: Error, ctx: IMidwayContext, app: IMidwayApplication);
+  // onAppError?(err: Error, app: IMidwayApplication);
+}
+
+export type ObjectContext = {
+  originName?: string;
 }
 
 /**
@@ -28,13 +28,14 @@ export interface ILifeCycle extends Partial<IObjectLifeCycle> {
  */
 export interface IObjectFactory {
   registry: IObjectDefinitionRegistry;
-  get<T>(identifier: new (...args) => T, args?: any): T;
-  get<T>(identifier: ObjectIdentifier, args?: any): T;
-  getAsync<T>(identifier: new (...args) => T, args?: any): Promise<T>;
-  getAsync<T>(identifier: ObjectIdentifier, args?: any): Promise<T>;
+  get<T>(identifier: new (...args) => T, args?: any[], objectContext?: ObjectContext): T;
+  get<T>(identifier: ObjectIdentifier, args?: any[], objectContext?: ObjectContext): T;
+  getAsync<T>(identifier: new (...args) => T, args?: any[], objectContext?: ObjectContext): Promise<T>;
+  getAsync<T>(identifier: ObjectIdentifier, args?: any[], objectContext?: ObjectContext): Promise<T>;
 }
 
 export enum ObjectLifeCycleEvent {
+  BEFORE_BIND = 'beforeBind',
   BEFORE_CREATED = 'beforeObjectCreated',
   AFTER_CREATED = 'afterObjectCreated',
   AFTER_INIT = 'afterObjectInit',
@@ -42,6 +43,16 @@ export enum ObjectLifeCycleEvent {
 }
 
 export interface IObjectLifeCycle {
+  onBeforeBind(
+    fn: (
+      Clzz: any,
+      options: {
+        context: IMidwayContainer;
+        definition: IObjectDefinition;
+        replaceCallback: (newDefinition: IObjectDefinition) => void;
+      }
+    ) => void
+  );
   onBeforeObjectCreated(
     fn: (
       Clzz: any,
@@ -93,6 +104,7 @@ export interface IObjectDefinition {
   dependsOn: ObjectIdentifier[];
   constructorArgs: IManagedInstance[];
   properties: IProperties;
+  scope: ScopeEnum;
   isAsync(): boolean;
   isSingletonScope(): boolean;
   isRequestScope(): boolean;
@@ -116,6 +128,7 @@ export interface IObjectDefinition {
      */
     metadata: any;
   }>;
+  createFrom: 'framework' | 'file' | 'module';
 }
 
 export interface IObjectCreator {
@@ -193,6 +206,19 @@ export type HandlerFunction = (
   meta: any,
   instance: any) => any;
 
+export type MethodHandlerFunction = (options: {
+  target: new (...args) => any;
+  propertyName: string;
+  metadata: any;
+}) => IMethodAspect;
+export type ParameterHandlerFunction = (options: {
+  target: new (...args) => any;
+  propertyName: string;
+  metadata: any;
+  originArgs: Array<any>;
+  parameterIndex: number;
+}) => IMethodAspect;
+
 export interface IIdentifierRelationShip {
   saveClassRelation(module: any, namespace?: string);
   saveFunctionRelation(ObjectIdentifier, uuid);
@@ -209,14 +235,15 @@ export interface IMidwayContainer extends IObjectFactory, IObjectLifeCycle {
   registerObject(identifier: ObjectIdentifier, target: any);
   load(module?: any);
   hasNamespace(namespace: string): boolean;
-  bind<T>(target: T, options?: ObjectDefinitionOptions): void;
+  hasDefinition(identifier: ObjectIdentifier);
+  hasObject(identifier: ObjectIdentifier);
+  bind<T>(target: T, options?: Partial<IObjectDefinition>): void;
   bind<T>(
     identifier: ObjectIdentifier,
     target: T,
-    options?: ObjectDefinitionOptions
+    options?: Partial<IObjectDefinition>
   ): void;
-  bindClass(exports, options?: ObjectDefinitionOptions);
-  getDebugLogger();
+  bindClass(exports, options?: Partial<IObjectDefinition>);
   setFileDetector(fileDetector: IFileDetector);
   createChild(): IMidwayContainer;
   /**
@@ -232,6 +259,11 @@ export interface IMidwayContainer extends IObjectFactory, IObjectLifeCycle {
    */
   getAttr<T>(key: string): T;
 }
+
+/**
+ * @deprecated
+ */
+export type IApplicationContext = IMidwayContainer;
 
 export interface IFileDetector {
   run(container: IMidwayContainer);
@@ -260,13 +292,6 @@ export interface IEnvironmentService {
   isDevelopmentEnvironment(): boolean;
 }
 
-export interface IAspectService {
-  loadAspect();
-  addAspect(aspectIns: IMethodAspect, aspectData: AspectMetadata);
-  wrapperAspectToInstance(ins);
-  hasAspect(module): boolean;
-}
-
 export enum MidwayProcessTypeEnum {
   APPLICATION = 'APPLICATION',
   AGENT = 'AGENT',
@@ -280,6 +305,18 @@ export interface Context {
   logger: ILogger;
   getLogger(name?: string): ILogger;
   startTime: number;
+  /**
+   * Set value to app attribute map
+   * @param key
+   * @param value
+   */
+  setAttr(key: string, value: any);
+
+  /**
+   * Get value from app attribute map
+   * @param key
+   */
+  getAttr<T>(key: string): T;
 }
 
 export type IMidwayContext<FrameworkContext = unknown> = Context & FrameworkContext;
@@ -288,38 +325,101 @@ export type IMidwayContext<FrameworkContext = unknown> = Context & FrameworkCont
  * Common middleware definition
  */
 
-export interface IMiddleware<T> {
-  resolve: () => FunctionMiddleware<T>;
+export interface IMiddleware<T, R = any, N = any> {
+  resolve: () => FunctionMiddleware<T, R, N>;
   match?: () => boolean;
   ignore?: () => boolean;
 }
-export type FunctionMiddleware<T> = (context: T, next: () => Promise<any>) => any;
-export type ClassMiddleware<T> = new (...args) => IMiddleware<T>;
-export type CommonMiddleware<T> = ClassMiddleware<T> | FunctionMiddleware<T>;
-export type CommonMiddlewareUnion<T> = CommonMiddleware<T> | Array<CommonMiddleware<T>>;
+export type FunctionMiddleware<T, R = any, N = any> = ((context: T, next: () => Promise<any>, options?: any) => any) | ((req: T, res: R, next: N) => any);
+export type ClassMiddleware<T, R = any, N = any> = new (...args) => IMiddleware<T, R, N>;
+export type CommonMiddleware<T, R = any, N = any> = ClassMiddleware<T, R, N> | FunctionMiddleware<T, R, N>;
+export type CommonMiddlewareUnion<T, R = any, N = any> = CommonMiddleware<T, R, N> | Array<CommonMiddleware<T, R, N>>;
+export type MiddlewareRespond<T, R = any, N = any> = (context: T, nextOrRes?: () => Promise<any> | R, next?: N) => Promise<{ result: any; error: Error | undefined }>;
 
 /**
  * Common Exception Filter definition
  */
-export interface IExceptionFilter<T> {
-  catch(err: Error, ctx: T): any;
+export interface IExceptionFilter<T, R = any, N = any> {
+  catch(err: Error, ctx: T, res?: R, next?: N): any;
 }
-export type CommonExceptionFilterUnion<T> = (new (...args) => IExceptionFilter<T>) | Array<new (...args) => IExceptionFilter<T>>
+export type CommonExceptionFilterUnion<T, R = any, N = any> = (new (...args) => IExceptionFilter<T, R, N>) | Array<new (...args) => IExceptionFilter<T, R, N>>
 
 export interface IMidwayBaseApplication<T extends IMidwayContext = IMidwayContext> {
+  /**
+   * Get a base directory for project, with src or dist
+   */
   getBaseDir(): string;
+
+  /**
+   * Get a project root directory, without src or dist
+   */
   getAppDir(): string;
+
+  /**
+   * Get a environment value, read from MIDWAY_SERVER_ENV
+   */
   getEnv(): string;
-  getFrameworkType(): MidwayFrameworkType;
+
+  /**
+   * Get current framework type in MidwayFrameworkType enum
+   */
+  getFrameworkType(): FrameworkType;
+
+  /**
+   * Get current running process type, app or agent, just for egg
+   */
   getProcessType(): MidwayProcessTypeEnum;
+
+  /**
+   * Get global Midway IoC Container
+   */
   getApplicationContext(): IMidwayContainer;
+
+  /**
+   * Get all configuration values or get the specified configuration through parameters
+   * @param key config key
+   */
   getConfig(key?: string): any;
+
+  /**
+   * Get default logger object or get the specified logger through parameters
+   * @param name
+   */
   getLogger(name?: string): ILogger;
+
+  /**
+   * Get core logger
+   */
   getCoreLogger(): ILogger;
+
+  /**
+   * Create a logger by name and options
+   * @param name
+   * @param options
+   */
   createLogger(name: string, options: LoggerOptions): ILogger;
+
+  /**
+   * Get project name, just package.json name
+   */
   getProjectName(): string;
+
+  /**
+   * create a context with RequestContainer
+   * @param args
+   */
   createAnonymousContext(...args): T;
+
+  /**
+   * Set a context logger class to change default context logger format
+   * @param BaseContextLoggerClass
+   */
   setContextLoggerClass(BaseContextLoggerClass: any): void;
+
+  /**
+   * Add new value to current config
+   * @param obj
+   */
   addConfigObject(obj: any);
 
   /**
@@ -339,12 +439,12 @@ export interface IMidwayBaseApplication<T extends IMidwayContext = IMidwayContex
    * add global filter to app
    * @param Middleware
    */
-  useMiddleware(Middleware: CommonMiddlewareUnion<T>): void;
+  useMiddleware<R = any, N = any>(Middleware: CommonMiddlewareUnion<T, R, N>): void;
 
   /**
    * get global middleware
    */
-  getMiddleware(): ContextMiddlewareManager<T>;
+  getMiddleware<R = any, N = any>(): ContextMiddlewareManager<T, R, N>;
 
   /**
    * add exception filter
@@ -356,25 +456,32 @@ export interface IMidwayBaseApplication<T extends IMidwayContext = IMidwayContex
 export type IMidwayApplication<T extends IMidwayContext = IMidwayContext, FrameworkApplication = unknown> = IMidwayBaseApplication<T> & FrameworkApplication;
 
 export interface IMidwayBootstrapOptions {
+  [customPropertyKey: string]: any;
   baseDir?: string;
   appDir?: string;
   applicationContext?: IMidwayContainer;
   preloadModules?: any[];
-  configurationModule?: any;
+  configurationModule?: any | any[];
+  moduleDetector?: 'file' | IFileDetector | false;
   logger?: boolean | ILogger;
   ignore?: string[];
+  globalConfig?: {
+    [environmentName: string]: Record<string, any>;
+  }
 }
 
 export interface IConfigurationOptions {
   logger?: ILogger;
   appLogger?: ILogger;
   ContextLoggerClass?: any;
+  ContextLoggerApplyLogger?: string;
 }
 
 export interface IMidwayFramework<APP extends IMidwayApplication, T extends IConfigurationOptions> {
   app: APP;
   configurationOptions: T;
-  configure(options: T): IMidwayFramework<APP, T>;
+  configure(options?: T);
+  isEnable(): boolean;
   initialize(options: Partial<IMidwayBootstrapOptions>): Promise<void>;
   run(): Promise<void>;
   stop(): Promise<void>;
@@ -382,7 +489,7 @@ export interface IMidwayFramework<APP extends IMidwayApplication, T extends ICon
   getApplicationContext(): IMidwayContainer;
   getConfiguration(key?: string): any;
   getCurrentEnvironment(): string;
-  getFrameworkType(): MidwayFrameworkType;
+  getFrameworkType(): FrameworkType;
   getFrameworkName(): string;
   getAppDir(): string;
   getBaseDir(): string;
@@ -392,6 +499,7 @@ export interface IMidwayFramework<APP extends IMidwayApplication, T extends ICon
   getProjectName(): string;
   getDefaultContextLoggerClass(): any;
   useMiddleware(Middleware: CommonMiddlewareUnion<ReturnType<APP['createAnonymousContext']>>);
+  getMiddleware<R, N>(lastMiddleware?: CommonMiddleware<ReturnType<APP['createAnonymousContext']>>): Promise<MiddlewareRespond<ReturnType<APP['createAnonymousContext']>, R, N>>;
   useFilter(Filter: CommonExceptionFilterUnion<ReturnType<APP['createAnonymousContext']>>);
 }
 

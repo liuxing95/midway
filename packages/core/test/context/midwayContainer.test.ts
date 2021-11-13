@@ -1,15 +1,20 @@
 import * as path from 'path';
-import { MidwayContainer, MidwayRequestContainer, DirectoryFileDetector, MidwayLoggerService } from '../../src';
+import {
+  MidwayContainer,
+  MidwayRequestContainer,
+  DirectoryFileDetector,
+  MidwayLoggerService,
+  MidwayConfigService,
+  MidwayEnvironmentService,
+  MidwayFrameworkService,
+  MidwayInformationService,
+  MidwayDecoratorService,
+  MidwayAspectService,
+} from '../../src';
 import { App } from '../fixtures/ts-app-inject/app';
 import { TestCons } from '../fixtures/ts-app-inject/test';
 import { APPLICATION_KEY, clearAllModule, CONFIG_KEY, LOGGER_KEY, PLUGIN_KEY } from '@midwayjs/decorator';
 import * as assert from 'assert';
-import {
-  MidwayConfigService,
-  MidwayEnvironmentService,
-  MidwayFrameworkService,
-  MidwayInformationService
-} from '../../src';
 
 function buildLoadDir(arr, baseDir) {
   return arr.map(dir => {
@@ -46,15 +51,17 @@ describe('/test/context/midwayContainer.test.ts', () => {
     container.bind(MidwayLoggerService);
     container.bind(MidwayEnvironmentService);
     container.bind(MidwayInformationService);
+    container.bind(MidwayAspectService);
+    container.bind(MidwayDecoratorService);
     container.registerObject('appDir', '');
     container.registerObject('baseDir', '');
 
-    const frameworkService = await container.getAsync(MidwayFrameworkService, [
+    const frameworkService = await container.getAsync(MidwayDecoratorService, [
       container
     ]);
 
     // register handler for container
-    frameworkService.registerHandler(CONFIG_KEY, (key, meta, target) => {
+    frameworkService.registerPropertyHandler(CONFIG_KEY, (key, meta, target) => {
       assert(
         target instanceof
         require('../fixtures/base-app-decorator/src/lib/service')[
@@ -64,11 +71,11 @@ describe('/test/context/midwayContainer.test.ts', () => {
       return 'hello';
     });
 
-    frameworkService.registerHandler(PLUGIN_KEY, (key, meta) => {
+    frameworkService.registerPropertyHandler(PLUGIN_KEY, (key, meta) => {
       return { b: 2 };
     });
 
-    frameworkService.registerHandler(LOGGER_KEY, (key, meta) => {
+    frameworkService.registerPropertyHandler(LOGGER_KEY, (key, meta) => {
       return console;
     });
     await container.ready();
@@ -104,16 +111,18 @@ describe('/test/context/midwayContainer.test.ts', () => {
     container.bind(MidwayLoggerService);
     container.bind(MidwayEnvironmentService);
     container.bind(MidwayInformationService);
+    container.bind(MidwayAspectService);
+    container.bind(MidwayDecoratorService);
     container.registerObject('appDir', '');
     container.registerObject('baseDir', '');
 
-    const frameworkService = await container.getAsync(MidwayFrameworkService, [
+    const frameworkService = await container.getAsync(MidwayDecoratorService, [
       container
     ]);
 
-    frameworkService.registerHandler(APPLICATION_KEY, () => tt);
+    frameworkService.registerPropertyHandler(APPLICATION_KEY, () => tt);
     // register handler for container
-    frameworkService.registerHandler(CONFIG_KEY, (key, meta, target) => {
+    frameworkService.registerPropertyHandler(CONFIG_KEY, (key, meta, target) => {
       assert(
         target instanceof
         require('../fixtures/base-app-forbindapp/src/lib/service')[
@@ -123,11 +132,11 @@ describe('/test/context/midwayContainer.test.ts', () => {
       return 'hello';
     });
 
-    frameworkService.registerHandler(PLUGIN_KEY, (key, target) => {
+    frameworkService.registerPropertyHandler(PLUGIN_KEY, (key, target) => {
       return { b: 2 };
     });
 
-    frameworkService.registerHandler(LOGGER_KEY, (key, target) => {
+    frameworkService.registerPropertyHandler(LOGGER_KEY, (key, target) => {
       return console;
     });
     await container.ready();
@@ -149,22 +158,24 @@ describe('/test/context/midwayContainer.test.ts', () => {
     container.bind(MidwayLoggerService);
     container.bind(MidwayEnvironmentService);
     container.bind(MidwayInformationService);
+    container.bind(MidwayAspectService);
+    container.bind(MidwayDecoratorService);
     container.registerObject('appDir', '');
     container.registerObject('baseDir', '');
 
-    const frameworkService = await container.getAsync(MidwayFrameworkService, [
+    const frameworkService = await container.getAsync(MidwayDecoratorService, [
       container
     ]);
     // register handler for container
-    frameworkService.registerHandler(CONFIG_KEY, key => {
+    frameworkService.registerPropertyHandler(CONFIG_KEY, key => {
       return { c: 60 };
     });
 
-    frameworkService.registerHandler(PLUGIN_KEY, key => {
+    frameworkService.registerPropertyHandler(PLUGIN_KEY, key => {
       return { text: 2 };
     });
 
-    frameworkService.registerHandler(LOGGER_KEY, key => {
+    frameworkService.registerPropertyHandler(LOGGER_KEY, key => {
       return console;
     });
 
@@ -192,22 +203,24 @@ describe('/test/context/midwayContainer.test.ts', () => {
     container.bind(MidwayLoggerService);
     container.bind(MidwayEnvironmentService);
     container.bind(MidwayInformationService);
+    container.bind(MidwayAspectService);
+    container.bind(MidwayDecoratorService);
     container.registerObject('appDir', '');
     container.registerObject('baseDir', '');
 
-    const frameworkService = await container.getAsync(MidwayFrameworkService, [
+    const frameworkService = await container.getAsync(MidwayDecoratorService, [
       container
     ]);
     // register handler for container
-    frameworkService.registerHandler(CONFIG_KEY, key => {
+    frameworkService.registerPropertyHandler(CONFIG_KEY, key => {
       return { c: 60 };
     });
 
-    frameworkService.registerHandler(PLUGIN_KEY, key => {
+    frameworkService.registerPropertyHandler(PLUGIN_KEY, key => {
       return { text: 2 };
     });
 
-    frameworkService.registerHandler(LOGGER_KEY, key => {
+    frameworkService.registerPropertyHandler(LOGGER_KEY, key => {
       return console;
     });
 

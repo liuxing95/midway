@@ -19,7 +19,6 @@ export function isTypeScriptEnvironment() {
 export class BootstrapStarter {
   protected appDir: string;
   protected baseDir: string;
-  // protected bootstrapItems: IMidwayFramework<any, any>[] = [];
   protected globalOptions: Partial<IMidwayBootstrapOptions> = {};
   protected globalConfig: any;
   private applicationContext: IMidwayContainer;
@@ -28,13 +27,6 @@ export class BootstrapStarter {
     this.globalOptions = options;
     return this;
   }
-
-  // public load(unit: (globalConfig: unknown) => IMidwayFramework<any, any>);
-  // public load(unit: IMidwayFramework<any, any>);
-  // public load(unit: any) {
-  //   this.bootstrapItems.push(unit);
-  //   return this;
-  // }
 
   public async init() {
     this.appDir = this.globalOptions.appDir || process.cwd();
@@ -45,6 +37,7 @@ export class BootstrapStarter {
       appDir: this.appDir,
       baseDir: this.baseDir,
     });
+    return this.applicationContext;
   }
 
   public async run() {}
@@ -69,6 +62,7 @@ export class Bootstrap {
   static starter: BootstrapStarter;
   static logger: ILogger;
   static configured = false;
+  static applicationContext: IMidwayContainer;
 
   /**
    * set global configuration for midway
@@ -123,7 +117,7 @@ export class Bootstrap {
     this.unhandledRejectionHandler = this.unhandledRejectionHandler.bind(this);
     process.on('unhandledRejection', this.unhandledRejectionHandler);
 
-    await this.getStarter().init();
+    this.applicationContext = await this.getStarter().init();
     return this.getStarter()
       .run()
       .then(() => {
@@ -199,5 +193,9 @@ export class Bootstrap {
       err.name = 'unhandledRejectionError';
     }
     this.logger.error(err);
+  }
+
+  static getApplicationContext(): IMidwayContainer {
+    return this.applicationContext;
   }
 }

@@ -2,7 +2,7 @@ import {
   ILifeCycle,
   IMidwayApplication,
   IMidwayContainer,
-  MidwayFrameworkService,
+  MidwayDecoratorService,
 } from '@midwayjs/core';
 import {
   App,
@@ -13,7 +13,6 @@ import {
   Inject,
   listModule,
 } from '@midwayjs/decorator';
-import { join } from 'path';
 import {
   Connection,
   ConnectionOptions,
@@ -30,7 +29,13 @@ import {
 import { OrmConnectionHook, ORM_HOOK_KEY } from './hook';
 
 @Configuration({
-  importConfigs: [join(__dirname, './config')],
+  importConfigs: [
+    {
+      default: {
+        orm: {},
+      },
+    },
+  ],
   namespace: 'orm',
 })
 export class OrmConfiguration implements ILifeCycle {
@@ -43,11 +48,11 @@ export class OrmConfiguration implements ILifeCycle {
   private connectionNames: string[] = [];
 
   @Inject()
-  frameworkService: MidwayFrameworkService;
+  decoratorService: MidwayDecoratorService;
 
   @Init()
   async init() {
-    this.frameworkService.registerHandler(
+    this.decoratorService.registerPropertyHandler(
       ORM_MODEL_KEY,
       (
         propertyName,

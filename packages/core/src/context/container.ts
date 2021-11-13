@@ -8,7 +8,6 @@ import {
   isFunction,
   listModule,
   MAIN_MODULE_KEY,
-  ObjectDefinitionOptions,
   ObjectIdentifier,
   saveModule,
   saveProviderId,
@@ -18,7 +17,7 @@ import {
   getPropertyInject,
   getObjectDefinition,
   getClassExtendedMetadata,
-  INJECT_CUSTOM_TAG,
+  INJECT_CUSTOM_PROPERTY,
   getProviderName,
   IModuleStore,
 } from '@midwayjs/decorator';
@@ -31,6 +30,7 @@ import {
   IMidwayContainer,
   IObjectDefinition,
   IObjectDefinitionRegistry,
+  ObjectContext,
   ObjectLifeCycleEvent,
   REQUEST_CTX_KEY,
 } from '../interface';
@@ -41,13 +41,13 @@ import {
   ManagedReference,
   ManagedResolverFactory,
 } from './managedResolverFactory';
-import { NotFoundError } from '../common/notFoundError';
 import { MidwayEnvironmentService } from '../service/environmentService';
 import { MidwayConfigService } from '../service/configService';
 import * as EventEmitter from 'events';
+import { MidwayDefinitionNotFoundError } from '../error';
 
-const debug = util.debuglog('midway:container:configuration');
-const globalDebugLogger = util.debuglog('midway:container');
+const debug = util.debuglog('midway:debug');
+const debugBind = util.debuglog('midway:bind');
 
 class ContainerConfiguration {
   private loadedMap = new WeakMap();
@@ -83,12 +83,12 @@ class ContainerConfiguration {
       // 已加载标记，防止死循环
       this.loadedMap.set(configurationExport, true);
 
-      debug('   configuration export %j.', configurationOptions);
       if (configurationOptions) {
         if (configurationOptions.namespace !== undefined) {
           namespace = configurationOptions.namespace;
           this.namespaceList.push(namespace);
         }
+        debug(`[core]: load configuration in namespace="${namespace}"`);
         this.addImports(configurationOptions.imports);
         this.addImportObjects(configurationOptions.importObjects);
         this.addImportConfigs(configurationOptions.importConfigs);
@@ -104,7 +104,6 @@ class ContainerConfiguration {
 
   addImportConfigs(importConfigs: string[]) {
     if (importConfigs && importConfigs.length) {
-      debug('   import configs %j".', importConfigs);
       this.container.get(MidwayConfigService).add(importConfigs);
     }
   }
@@ -118,18 +117,14 @@ class ContainerConfiguration {
       }
       if ('Configuration' in importPackage) {
         // component is object
-        debug(
-          '\n---------- start load configuration from submodule" ----------'
-        );
         this.load(importPackage);
-        debug(
-          `---------- end load configuration from sub package "${importPackage}" ----------`
-        );
       } else if ('component' in importPackage) {
         if ((importPackage as IComponentInfo)?.enabledEnvironment) {
           if (
             (importPackage as IComponentInfo)?.enabledEnvironment?.includes(
-              this.container.get(MidwayEnvironmentService).getCurrentEnvironment()
+              this.container
+                .get(MidwayEnvironmentService)
+                .getCurrentEnvironment()
             )
           ) {
             this.load((importPackage as IComponentInfo).component);
@@ -221,7 +216,6 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
   private moduleMap = null;
   private _objectCreateEventTarget: EventEmitter;
   public parent: IMidwayContainer = null;
-  private debugLogger = globalDebugLogger;
   // 仅仅用于兼容requestContainer的ctx
   protected ctx = {};
   private fileDetector: IFileDetector;
@@ -299,7 +293,7 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
     this.fileDetector?.run(this);
   }
 
-  bindClass(exports, options?: ObjectDefinitionOptions) {
+  bindClass(exports, options?: Partial<IObjectDefinition>) {
     if (isClass(exports) || isFunction(exports)) {
       this.bindModule(exports, options);
     } else {
@@ -312,11 +306,11 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
     }
   }
 
-  bind<T>(target: T, options?: ObjectDefinitionOptions): void;
+  bind<T>(target: T, options?: Partial<IObjectDefinition>): void;
   bind<T>(
     identifier: ObjectIdentifier,
     target: T,
-    options?: ObjectDefinitionOptions
+    options?: Partial<IObjectDefinition>
   ): void;
   bind<T>(identifier: any, target: any, options?: any): void {
     if (isClass(identifier) || isFunction(identifier)) {
@@ -345,17 +339,20 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
     definition.srcPath = options?.srcPath || null;
     definition.namespace = options?.namespace || '';
     definition.scope = options?.scope || ScopeEnum.Request;
+    definition.createFrom = options?.createFrom;
 
-    this.debugLogger(`  bind id => [${definition.id}(${definition.name})]`);
+    if (definition.srcPath) {
+      debug(`[core]: bind id "${definition.name} (${definition.srcPath})"`);
+    } else {
+      debug(`[core]: bind id "${definition.name}"`);
+    }
 
     // inject properties
     const props = getPropertyInject(target);
 
     for (const p in props) {
       const propertyMeta = props[p];
-      this.debugLogger(
-        `  inject properties => [${JSON.stringify(propertyMeta)}]`
-      );
+      debugBind(`  inject properties => [${JSON.stringify(propertyMeta)}]`);
       const refManaged = new ManagedReference();
       refManaged.args = propertyMeta.args;
       refManaged.name = propertyMeta.value as any;
@@ -363,7 +360,10 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
     }
 
     // inject custom properties
-    const customProps = getClassExtendedMetadata(INJECT_CUSTOM_TAG, target);
+    const customProps = getClassExtendedMetadata(
+      INJECT_CUSTOM_PROPERTY,
+      target
+    );
 
     for (const p in customProps) {
       const propertyMeta = customProps[p] as {
@@ -375,34 +375,45 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
     }
 
     // @async, @init, @destroy @scope
-    const objDefOptions: ObjectDefinitionOptions =
-      getObjectDefinition(target) ?? {};
+    const objDefOptions = getObjectDefinition(target) ?? {};
 
     if (objDefOptions.initMethod) {
-      this.debugLogger(`  register initMethod = ${objDefOptions.initMethod}`);
+      debugBind(`  register initMethod = ${objDefOptions.initMethod}`);
       definition.initMethod = objDefOptions.initMethod;
     }
 
     if (objDefOptions.destroyMethod) {
-      this.debugLogger(
-        `  register destroyMethod = ${objDefOptions.destroyMethod}`
-      );
+      debugBind(`  register destroyMethod = ${objDefOptions.destroyMethod}`);
       definition.destroyMethod = objDefOptions.destroyMethod;
     }
 
     if (objDefOptions.scope) {
-      this.debugLogger(`  register scope = ${objDefOptions.scope}`);
+      debugBind(`  register scope = ${objDefOptions.scope}`);
       definition.scope = objDefOptions.scope;
     }
 
-    this.registry.registerDefinition(definition.id, definition);
+    this.objectCreateEventTarget.emit(
+      ObjectLifeCycleEvent.BEFORE_BIND,
+      target,
+      {
+        context: this,
+        definition,
+        replaceCallback: newDefinition => {
+          definition = newDefinition;
+        },
+      }
+    );
+
+    if (definition) {
+      this.registry.registerDefinition(definition.id, definition);
+    }
   }
 
-  protected bindModule(module: any, options: ObjectDefinitionOptions = {}) {
+  protected bindModule(module: any, options: Partial<IObjectDefinition>) {
     if (isClass(module)) {
       const providerId = getProviderUUId(module);
       if (providerId) {
-        this.identifierMapping.saveClassRelation(module, options.namespace);
+        this.identifierMapping.saveClassRelation(module, options?.namespace);
         this.bind(providerId, module, options);
       } else {
         // no provide or js class must be skip
@@ -423,13 +434,10 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
           scope: info.scope,
           namespace: options.namespace,
           srcPath: options.srcPath,
+          createFrom: options.createFrom,
         });
       }
     }
-  }
-
-  getDebugLogger() {
-    return this.debugLogger;
   }
 
   setFileDetector(fileDetector: IFileDetector) {
@@ -468,9 +476,17 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
     await this.loadDefinitions();
   }
 
-  get<T>(identifier: { new (...args): T }, args?: any): T;
-  get<T>(identifier: ObjectIdentifier, args?: any): T;
-  get(identifier: any, args?: any): any {
+  get<T>(
+    identifier: { new (...args): T },
+    args?: any[],
+    objectContext?: ObjectContext
+  ): T;
+  get<T>(
+    identifier: ObjectIdentifier,
+    args?: any[],
+    objectContext?: ObjectContext
+  ): T;
+  get(identifier: any, args?: any[], objectContext?: ObjectContext): any {
     if (typeof identifier !== 'string') {
       identifier = this.getIdentifier(identifier);
     }
@@ -482,14 +498,28 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
       return this.parent.get(identifier, args);
     }
     if (!definition) {
-      throw new NotFoundError(identifier);
+      throw new MidwayDefinitionNotFoundError(
+        objectContext?.originName ?? identifier
+      );
     }
     return this.getManagedResolverFactory().create({ definition, args });
   }
 
-  async getAsync<T>(identifier: { new (...args): T }, args?: any): Promise<T>;
-  async getAsync<T>(identifier: ObjectIdentifier, args?: any): Promise<T>;
-  async getAsync(identifier: any, args?: any): Promise<any> {
+  async getAsync<T>(
+    identifier: { new (...args): T },
+    args?: any[],
+    objectContext?: ObjectContext
+  ): Promise<T>;
+  async getAsync<T>(
+    identifier: ObjectIdentifier,
+    args?: any[],
+    objectContext?: ObjectContext
+  ): Promise<T>;
+  async getAsync(
+    identifier: any,
+    args?: any[],
+    objectContext?: ObjectContext
+  ): Promise<any> {
     if (typeof identifier !== 'string') {
       identifier = this.getIdentifier(identifier);
     }
@@ -503,7 +533,9 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
     }
 
     if (!definition) {
-      throw new NotFoundError(identifier);
+      throw new MidwayDefinitionNotFoundError(
+        objectContext?.originName ?? identifier
+      );
     }
 
     return this.getManagedResolverFactory().createAsync({ definition, args });
@@ -516,6 +548,19 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
    */
   registerObject(identifier: ObjectIdentifier, target: any) {
     this.registry.registerObject(identifier, target);
+  }
+
+  onBeforeBind(
+    fn: (
+      Clzz: any,
+      options: {
+        context: IMidwayContainer;
+        definition: IObjectDefinition;
+        replaceCallback: (newDefinition: IObjectDefinition) => void;
+      }
+    ) => void
+  ) {
+    this.objectCreateEventTarget.on(ObjectLifeCycleEvent.BEFORE_BIND, fn);
   }
 
   onBeforeObjectCreated(
@@ -585,5 +630,13 @@ export class MidwayContainer implements IMidwayContainer, IModuleStore {
 
   hasNamespace(ns: string) {
     return this.namespaceSet.has(ns);
+  }
+
+  hasDefinition(identifier: ObjectIdentifier) {
+    return this.registry.hasDefinition(identifier);
+  }
+
+  hasObject(identifier: ObjectIdentifier) {
+    return this.registry.hasObject(identifier);
   }
 }

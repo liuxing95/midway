@@ -5,9 +5,12 @@ import {
   TagClsMetadata,
   TagPropsMetadata,
   IModuleStore,
+  GroupModeType,
 } from './interface';
 import {
-  INJECT_CUSTOM_TAG,
+  INJECT_CUSTOM_METHOD,
+  INJECT_CUSTOM_PARAM,
+  INJECT_CUSTOM_PROPERTY,
   INJECT_TAG,
   OBJ_DEF_CLS,
   TAGGED_CLS,
@@ -139,7 +142,8 @@ export class DecoratorManager extends Map implements IModuleStore {
     target: any,
     dataKey: string,
     data: any,
-    groupBy?: string
+    groupBy?: string,
+    groupMode: GroupModeType = 'one'
   ) {
     // filter Object.create(null)
     if (typeof target === 'object' && target.constructor) {
@@ -161,7 +165,15 @@ export class DecoratorManager extends Map implements IModuleStore {
       }
     }
     if (groupBy) {
-      m.get(dataKey)[groupBy] = data;
+      if (groupMode === 'one') {
+        m.get(dataKey)[groupBy] = data;
+      } else {
+        if (m.get(dataKey)[groupBy]) {
+          m.get(dataKey)[groupBy].push(data);
+        } else {
+          m.get(dataKey)[groupBy] = [data];
+        }
+      }
     } else {
       m.get(dataKey).push(data);
     }
@@ -235,7 +247,8 @@ export class DecoratorManager extends Map implements IModuleStore {
     data,
     target,
     propertyName?: string,
-    groupBy?: string
+    groupBy?: string,
+    groupMode?: GroupModeType
   ) {
     if (propertyName) {
       const dataKey = DecoratorManager.getDecoratorMethod(
@@ -247,7 +260,8 @@ export class DecoratorManager extends Map implements IModuleStore {
         target,
         dataKey,
         data,
-        groupBy
+        groupBy,
+        groupMode
       );
     } else {
       const dataKey = DecoratorManager.getDecoratorClassKey(decoratorNameKey);
@@ -256,7 +270,8 @@ export class DecoratorManager extends Map implements IModuleStore {
         target,
         dataKey,
         data,
-        groupBy
+        groupBy,
+        groupMode
       );
     }
   }
@@ -446,14 +461,16 @@ export function attachClassMetadata(
   decoratorNameKey: ObjectIdentifier,
   data: any,
   target,
-  groupBy?: string
+  groupBy?: string,
+  groupMode?: GroupModeType
 ) {
   return manager.attachMetadata(
     decoratorNameKey,
     data,
     target,
     undefined,
-    groupBy
+    groupBy,
+    groupMode
   );
 }
 
@@ -645,6 +662,9 @@ export function listPreloadModule(): any[] {
  * @param target
  */
 export function saveModule(decoratorNameKey: ObjectIdentifier, target) {
+  if (isClass(target)) {
+    saveProviderId(undefined, target);
+  }
   return manager.saveModule(decoratorNameKey, target);
 }
 
@@ -802,23 +822,36 @@ export function getObjectDefinition(target: any): ObjectDefinitionOptions {
  * @param target class
  */
 export function saveProviderId(identifier: ObjectIdentifier, target: any) {
-  const uuid = generateRandomId();
-  // save class id and uuid
-  saveClassMetadata(
-    TAGGED_CLS,
-    {
-      id: identifier,
-      originName: target.name,
-      uuid,
-      name: classNamed(target.name),
-    },
-    target
-  );
-
-  debug(`save provide: ${target.name} -> ${uuid}`);
+  if (isProvide(target)) {
+    if (identifier) {
+      const meta = getClassMetadata(TAGGED_CLS, target);
+      if (meta.id !== identifier) {
+        meta.id = identifier;
+        // save class id and uuid
+        saveClassMetadata(TAGGED_CLS, meta, target);
+        debug(`update provide: ${target.name} -> ${meta.uuid}`);
+      }
+    }
+  } else {
+    // save
+    const uuid = generateRandomId();
+    // save class id and uuid
+    saveClassMetadata(
+      TAGGED_CLS,
+      {
+        id: identifier,
+        originName: target.name,
+        uuid,
+        name: classNamed(target.name),
+      },
+      target
+    );
+    debug(`save provide: ${target.name} -> ${uuid}`);
+  }
 
   return target;
 }
+
 /**
  * get provider id from module
  * @param module
@@ -847,6 +880,7 @@ export function getProviderUUId(module): string {
     return metaData.uuid;
   }
 }
+
 /**
  * use @Provide decorator or not
  * @param target class
@@ -859,6 +893,9 @@ export function isProvide(target: any): boolean {
  * get parameters type by reflect-metadata
  */
 export function getMethodParamTypes(target, methodName: string | symbol) {
+  if (isClass(target)) {
+    target = target.prototype;
+  }
   return Reflect.getMetadata('design:paramtypes', target, methodName);
 }
 
@@ -879,6 +916,9 @@ export function getPropertyType(target, methodName: string | symbol) {
  * @param methodName
  */
 export function getMethodReturnTypes(target, methodName: string | symbol) {
+  if (isClass(target)) {
+    target = target.prototype;
+  }
   return Reflect.getMetadata('design:returntype', target, methodName);
 }
 
@@ -893,7 +933,7 @@ export function createCustomPropertyDecorator(
 ): PropertyDecorator {
   return function (target: any, propertyName: string): void {
     attachClassMetadata(
-      INJECT_CUSTOM_TAG,
+      INJECT_CUSTOM_PROPERTY,
       {
         propertyName,
         key: decoratorKey,
@@ -901,6 +941,44 @@ export function createCustomPropertyDecorator(
       },
       target,
       propertyName
+    );
+  };
+}
+
+export function createCustomMethodDecorator(
+  decoratorKey: string,
+  metadata: any
+): MethodDecorator {
+  return function (target: any, propertyName: string, descriptor) {
+    attachClassMetadata(
+      INJECT_CUSTOM_METHOD,
+      {
+        propertyName,
+        key: decoratorKey,
+        metadata,
+      },
+      target
+    );
+  };
+}
+
+export function createCustomParamDecorator(
+  decoratorKey: string,
+  metadata: any
+): ParameterDecorator {
+  return function (target: any, propertyName: string, parameterIndex: number) {
+    // const parameterName = getParamNames(target[methodName])[parameterIndex];
+    attachClassMetadata(
+      INJECT_CUSTOM_PARAM,
+      {
+        key: decoratorKey,
+        parameterIndex,
+        propertyName,
+        metadata,
+      },
+      target,
+      propertyName,
+      'multi'
     );
   };
 }
