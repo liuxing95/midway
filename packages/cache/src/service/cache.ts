@@ -1,17 +1,22 @@
 import { Config, Init, Provide, Scope, ScopeEnum } from '@midwayjs/decorator';
 import * as cacheManager from 'cache-manager';
 
+// 单例的作用域 也就是说这个服务不会被销毁 一直存在
 @Scope(ScopeEnum.Singleton)
 @Provide()
 export class CacheManager {
+  // ts定义
   cache: cacheManager.Cache;
 
   @Config('cache')
   cacheConfig;
 
   @Init()
+  // 初始化
   async init() {
     this.cache = cacheManager.caching({
+      // store: 'memory',
+      // 默认的 store 是 memory 所以生成的是一个 内存级别的缓存
       store: this.cacheConfig.store,
       ...this.cacheConfig.options,
     });
