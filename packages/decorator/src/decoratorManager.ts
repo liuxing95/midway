@@ -756,6 +756,7 @@ export function savePropertyInject(opts: {
   args?: any;
 }) {
   // 1、use identifier by user
+  // 1. 获取 @Inject(identifier) 中设置的 identifier
   let identifier = opts.identifier;
   // 2、use identifier by class uuid
   if (!identifier) {
@@ -822,11 +823,17 @@ export function getObjectDefinition(target: any): ObjectDefinitionOptions {
  * @param target class
  */
 export function saveProviderId(identifier: ObjectIdentifier, target: any) {
+  // 如果该 class 已经被存储过
   if (isProvide(target)) {
+    // 如果 identifier 存在的话
     if (identifier) {
+      // 拿到元数据
       const meta = getClassMetadata(TAGGED_CLS, target);
+      // 如果之前存储的元数据 id 不等于 现在传入的 identifier 会重新修改元数据
+      // 这种一般触发在动态配置
       if (meta.id !== identifier) {
         meta.id = identifier;
+        // 重新存储
         // save class id and uuid
         saveClassMetadata(TAGGED_CLS, meta, target);
         debug(`update provide: ${target.name} -> ${meta.uuid}`);

@@ -14,6 +14,7 @@ export function Destroy(): MethodDecorator {
   };
 }
 
+// Scope 默认改成了单例模式
 export function Scope(scope: ScopeEnum = ScopeEnum.Singleton): ClassDecorator {
   return function (target: any): void {
     saveObjectDefinition(target, { scope });
