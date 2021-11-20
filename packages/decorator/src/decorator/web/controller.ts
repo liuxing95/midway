@@ -29,6 +29,7 @@ export function Controller(
   } = { middleware: [], sensitive: true }
 ): ClassDecorator {
   return (target: any) => {
+    // 容器存储 模块
     saveModule(CONTROLLER_KEY, target);
     if (prefix)
       saveClassMetadata(

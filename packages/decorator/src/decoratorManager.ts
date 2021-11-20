@@ -47,10 +47,13 @@ export class DecoratorManager extends Map implements IModuleStore {
 
   container: IModuleStore;
 
+  // 模块注入到容器中
   saveModule(key, module) {
+    // 这里判读判断是否有用户自定义容器传进来
     if (this.container) {
       return this.container.saveModule(key, module);
     }
+    // 内置 容器的逻辑
     if (!this.has(key)) {
       this.set(key, new Set());
     }
@@ -658,10 +661,11 @@ export function listPreloadModule(): any[] {
 
 /**
  * save module to inner map
- * @param decoratorNameKey
- * @param target
+ * @param decoratorNameKey 装饰器名称
+ * @param target class 对象
  */
 export function saveModule(decoratorNameKey: ObjectIdentifier, target) {
+  //  判断是否是 类
   if (isClass(target)) {
     saveProviderId(undefined, target);
   }
