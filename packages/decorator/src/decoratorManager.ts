@@ -60,6 +60,7 @@ export class DecoratorManager extends Map implements IModuleStore {
     this.get(key).add(module);
   }
 
+  // 查看某个 key 下 的 module
   listModule(key) {
     if (this.container) {
       return this.container.listModule(key);
@@ -67,19 +68,23 @@ export class DecoratorManager extends Map implements IModuleStore {
     return Array.from(this.get(key) || {});
   }
 
+  // 重置key 下面的 module set 集初始化为空
   resetModule(key) {
     this.set(key, new Set());
   }
 
+  // 绑定 用户传进来的container 动态修改container
   bindContainer(container: IModuleStore) {
     this.container = container;
     this.container.transformModule(this);
   }
 
+  // 静态方法 给 key 增加  '_CLS'
   static getDecoratorClassKey(decoratorNameKey: ObjectIdentifier) {
     return decoratorNameKey.toString() + '_CLS';
   }
 
+  // 静态方法 清空 '_CLS'
   static removeDecoratorClassKeySuffix(decoratorNameKey: ObjectIdentifier) {
     return decoratorNameKey.toString().replace('_CLS', '');
   }
@@ -118,6 +123,7 @@ export class DecoratorManager extends Map implements IModuleStore {
     );
   }
 
+  // 静态方法 存储元数据
   static saveMetadata(
     metaKey: string,
     target: any,
@@ -130,16 +136,21 @@ export class DecoratorManager extends Map implements IModuleStore {
     }
 
     let m: Map<string, any>;
+    // 如果 target 对应的 元key 存在 元数据
     if (Reflect.hasOwnMetadata(metaKey, target)) {
+      // m 等于用户存储的元数据
       m = Reflect.getMetadata(metaKey, target);
     } else {
+      // 否则 初始化一个新的 map
       m = new Map<string, any>();
     }
 
+    // 存储新的 属性值对应的数据
     m.set(dataKey, data);
     Reflect.defineMetadata(metaKey, m, target);
   }
 
+  // 静态方法 关联 元数据
   static attachMetadata(
     metaKey: string,
     target: any,
@@ -183,6 +194,7 @@ export class DecoratorManager extends Map implements IModuleStore {
     Reflect.defineMetadata(metaKey, m, target);
   }
 
+  // 静态方法 获取元数据
   static getMetadata(metaKey: string, target: any, dataKey?: string) {
     // filter Object.create(null)
     if (typeof target === 'object' && target.constructor) {
@@ -209,6 +221,7 @@ export class DecoratorManager extends Map implements IModuleStore {
    * @param target target class
    * @param propertyName
    */
+  // 存储元数据
   saveMetadata(
     decoratorNameKey: ObjectIdentifier,
     data,
